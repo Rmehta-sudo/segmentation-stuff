@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from PIL import Image, ImageDraw, ImageFont
 
-TEXT = "Random"
+TEXT = "testup"
 # ----------------------------
 # Parameters
 # ----------------------------
@@ -29,13 +29,36 @@ text_mask = np.array(mask_img) > 0
 # ----------------------------
 # Initialize Video Writer
 # ----------------------------
-out = cv2.VideoWriter(
-    "motion_illusion_"+TEXT+".mp4",
-    cv2.VideoWriter_fourcc(*"avc1"),
-    30,
-    (W, H),
-    isColor=False
-)
+import os
+os.makedirs("illusion-videos", exist_ok=True)
+
+# Try multiple codec options in order of preference
+codecs_to_try = [
+    cv2.VideoWriter_fourcc(*"mp4v"),  # MPEG-4 (most compatible)
+    cv2.VideoWriter_fourcc(*"XVID"),  # Xvid
+    cv2.VideoWriter_fourcc(*"MJPG"),  # Motion JPEG
+]
+
+out = None
+for codec in codecs_to_try:
+    try:
+        out = cv2.VideoWriter(
+            "illusion-videos/motion_illusion_"+TEXT+".mp4",
+            codec,
+            30,
+            (W, H),
+            isColor=False
+        )
+        if out.isOpened():
+            print(f"Using codec: {codec}")
+            break
+        else:
+            out.release()
+    except:
+        continue
+
+if out is None or not out.isOpened():
+    raise RuntimeError("Could not initialize video writer with any codec")
 
 # Initial random noise
 noise_layer = (np.random.rand(H, W) < DOT_DENSITY).astype(np.uint8) * 255

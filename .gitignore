@@ -6,6 +6,9 @@ sam-checkpoints/
 
 # Generated outputs
 */output/
+!motion-masking/
+!motion-masking/output/
+!motion-masking/output/vel_000010.png
 */frames/
 */videos/
 images/
