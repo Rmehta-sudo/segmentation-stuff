@@ -26,8 +26,8 @@ with initialize_config_dir(
 print("Building SAM-2 video predictor...")
 # predictor is already built above
 
-frames_dir = "frames"
-out_dir = "output/sam2"
+frames_dir = "frames-motion_illusion_RACHIT"
+out_dir = "output/sam2/"+frames_dir[7:]
 os.makedirs(out_dir, exist_ok=True)
 
 print("Loading frames...")

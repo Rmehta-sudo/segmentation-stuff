@@ -13,8 +13,8 @@ sam = sam_model_registry["vit_b"](
 ).to(device)
 predictor = SamPredictor(sam)
 
-frames_dir = "frames"
-out_dir = "output/sam1"
+frames_dir = "frames-motion_illusion_RACHIT"
+out_dir = "output/sam1"+frames_dir[7:]
 os.makedirs(out_dir, exist_ok=True)
 
 frame_files = sorted(os.listdir(frames_dir))
