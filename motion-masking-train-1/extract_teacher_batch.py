@@ -18,6 +18,33 @@ import cv2
 import numpy as np
 
 
+def _make_motion_axes(num_axes: int) -> list[tuple[float, float]]:
+    """Return a set of (ax, ay) directions.
+
+    For 12 axes we use directions at 0°,30°,...,330° (image coordinates: +x right, +y down).
+    """
+    if num_axes == 4:
+        return [(0.0, 1.0), (0.0, -1.0), (1.0, 0.0), (-1.0, 0.0)]
+    if num_axes == 8:
+        return [
+            (0.0, 1.0),
+            (0.0, -1.0),
+            (1.0, 0.0),
+            (-1.0, 0.0),
+            (1.0, 1.0),
+            (1.0, -1.0),
+            (-1.0, 1.0),
+            (-1.0, -1.0),
+        ]
+    if num_axes == 12:
+        axes: list[tuple[float, float]] = []
+        for deg in range(0, 360, 30):
+            rad = np.deg2rad(deg)
+            axes.append((float(np.cos(rad)), float(np.sin(rad))))
+        return axes
+    raise ValueError("num_axes must be one of: 4, 8, 12")
+
+
 def process_video(
     video_path: Path,
     output_dir: Path,
@@ -31,8 +58,9 @@ def process_video(
     start_frame: int,
     num_frames: int,
     save_speed: bool,
+    num_axes: int,
 ) -> None:
-    motion_axes = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+    motion_axes = _make_motion_axes(num_axes)
     eps = 1e-6
 
     cap = cv2.VideoCapture(str(video_path))
@@ -97,8 +125,9 @@ def process_video(
                     for disp in range(-max_displacement, max_displacement + 1):
                         corr_vals = []
                         for k in range(x_frames):
-                            y2 = y + disp * ay
-                            x2 = x + disp * ax
+                            # Allow fractional direction vectors; index with rounded pixel shifts.
+                            y2 = int(round(y + disp * ay))
+                            x2 = int(round(x + disp * ax))
                             if y2 < 0 or y2 + patch_h > H:
                                 continue
                             if x2 < 0 or x2 + patch_w > W:
@@ -190,6 +219,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out-root", type=str, default="output")
     p.add_argument("--x-frames", type=int, default=4)
 
+    p.add_argument(
+        "--num-axes",
+        type=int,
+        default=12,
+        choices=[4, 8, 12],
+        help="How many motion directions to search (default: 12).",
+    )
+
     p.add_argument("--patch-h", type=int, default=8)
     p.add_argument("--patch-w", type=int, default=8)
     p.add_argument("--stride-y", type=int, default=4)
@@ -206,6 +243,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable including --extra-videos (only process --video-dir).",
     )
+    p.add_argument(
+        "--stage",
+        type=str,
+        default="all",
+        choices=["all", "1", "2", "3", "4"],
+        help=(
+            "Run a staged subset in this order: "
+            "(1) RACHIT only, (2) first 10 dataset videos, (3) other 3 manual illusion videos, "
+            "(4) remaining dataset videos. Use --stage all to run all stages in one go."
+        ),
+    )
     return p.parse_args()
 
 
@@ -215,24 +263,48 @@ def main() -> None:
     video_dir = Path(args.video_dir)
     out_root = Path(args.out_root)
 
-    videos = sorted(video_dir.glob("*.mp4"))
+    dataset_videos = sorted(video_dir.glob("*.mp4"))
     if args.limit_videos is not None:
-        videos = videos[: int(args.limit_videos)]
+        dataset_videos = dataset_videos[: int(args.limit_videos)]
 
+    manual_videos: list[Path] = []
     if not args.no_extra:
         for p in args.extra_videos:
             vp = Path(p)
             if vp.exists():
-                videos.append(vp)
+                manual_videos.append(vp)
             else:
                 print(f"[warn] extra video not found, skipping: {vp}")
 
-    # De-dup by absolute path
-    uniq = {}
+    rachit = [v for v in manual_videos if v.stem == "motion_illusion_RACHIT"]
+    others = [v for v in manual_videos if v.stem != "motion_illusion_RACHIT"]
+    first10 = dataset_videos[:10]
+    rest90 = dataset_videos[10:]
+
+    # Stage selection
+    videos: list[Path]
+    if args.stage == "all":
+        # Run all stages in the requested order.
+        videos = rachit + first10 + others + rest90
+    elif args.stage == "1":
+        videos = rachit
+    elif args.stage == "2":
+        videos = first10
+    elif args.stage == "3":
+        videos = others
+    else:
+        videos = rest90
+
+    # De-dup by absolute path (preserve order)
+    seen: set[str] = set()
+    uniq_videos: list[Path] = []
     for vp in videos:
-        uniq[str(vp.resolve())] = vp
-    videos = list(uniq.values())
-    videos.sort(key=lambda p: p.name)
+        key = str(vp.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq_videos.append(vp)
+    videos = uniq_videos
 
     if not videos:
         raise RuntimeError(
@@ -256,6 +328,7 @@ def main() -> None:
             start_frame=args.start_frame,
             num_frames=args.num_frames,
             save_speed=args.save_speed,
+            num_axes=args.num_axes,
         )
 
     print("Done.")
